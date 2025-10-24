@@ -1,0 +1,7 @@
+# Core dependencies
+playwright>=1.40.0
+
+# Future dependencies (commented out until needed)
+# click>=8.1.0          # CLI framework
+# lupa>=2.0             # Lua bridge (if we go that route)
+# requests>=2.31.0      # HTTP requests

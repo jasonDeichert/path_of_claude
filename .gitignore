@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Playwright
+playwright-report/
+test-results/
+
+# Data
+data/snapshots/*.json
+data/cache/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+examples/*.json
+
+# Personal planning and outputs (local only, not product planning)
+planning/
+builds/
