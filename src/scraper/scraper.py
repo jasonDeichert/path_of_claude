@@ -6,7 +6,7 @@ import time
 import json
 from pathlib import Path
 
-from .models import Build, BuildSnapshot
+from .models import Build, BuildSnapshot, SkillGem, SkillGroup, ItemSlot
 from .parsing import (
     parse_number_with_suffix,
     extract_skill_name_from_url,
@@ -176,15 +176,15 @@ class PoeNinjaScraper:
             account_name=account_name,
         )
 
-    def export_pob_code(self, build: Build) -> str:
+    def enrich_build_details(self, build: Build) -> Build:
         """
-        Get POB code for a single build (Phase 2).
+        Extract detailed build information from the detail page (Phase 2).
 
         Args:
             build: Build object with profile_url populated
 
         Returns:
-            Base64-encoded POB import code
+            Build object with skill_groups and items populated
         """
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=self.headless)
@@ -196,66 +196,93 @@ class PoeNinjaScraper:
             page.goto(full_url, wait_until="domcontentloaded")
             page.wait_for_timeout(3000)
 
-            # Extract POB code from input field
-            pob_input = page.locator('input[aria-label*="Path of Building"]').first
-            pob_code = pob_input.get_attribute("value") or ""
+            # Extract skill gems
+            skill_groups = self._extract_skill_groups(page)
+            build.skill_groups = skill_groups
+
+            # Extract items (if needed)
+            # items = self._extract_items(page)
+            # build.items = items
 
             browser.close()
 
-            if not pob_code:
-                raise ValueError(f"No POB code found for {build.character_name}")
+        return build
 
-            return pob_code
+    def _extract_skill_groups(self, page: Page) -> List[SkillGroup]:
+        """Extract skill gem setups from build detail page."""
+        skill_groups = []
 
-    def export_pob_codes(
-        self, builds: List[Build], output_dir: Optional[str] = None
-    ) -> Dict[str, str]:
+        # Find all images and filter for gems
+        all_imgs = page.locator('img').all()
+
+        current_group_gems = []
+
+        for img in all_imgs:
+            alt_text = img.get_attribute('alt') or ''
+            if not alt_text:
+                continue
+
+            # Check if this looks like a skill gem
+            # Gems either have "Support" in the name or are recognizable skills
+            is_support = 'Support' in alt_text
+            is_skill = any(keyword in alt_text for keyword in [
+                'Strike', 'Slam', 'Shot', 'Arrow', 'Blast', 'Wave', 'Vortex',
+                'Storm', 'Brand', 'Totem', 'Trap', 'Mine', 'Surge', 'Shield',
+                'Blink', 'Dash', 'Leap', 'Charge', 'Cry', 'Shout', 'Banner',
+                'Aura', 'Curse', 'Mark', 'Offering', 'Frost', 'Fire', 'Lightning',
+                'Chaos', 'Summon', 'Raise', 'Animate', 'Herald', 'Aspect',
+                'Link', 'Orb', 'Nova', 'Rain', 'Barrage', 'Cascade', 'Volley',
+                'Kinetic', 'Wand', 'Fusillade', 'Somatic', 'Creeping'
+            ])
+
+            if is_support or is_skill:
+                gem = SkillGem(name=alt_text, is_support=is_support)
+                # Avoid duplicates
+                if not any(g.name == gem.name for g in current_group_gems):
+                    current_group_gems.append(gem)
+
+        # For now, treat all gems as separate groups
+        # TODO: Better grouping logic based on visual proximity
+        if current_group_gems:
+            skill_groups.append(SkillGroup(gems=current_group_gems))
+
+        return skill_groups
+
+    def enrich_builds_batch(self, builds: List[Build]) -> List[Build]:
         """
-        Extract POB codes for multiple builds (Phase 2 batch).
+        Enrich multiple builds with detailed information (Phase 2 batch).
 
         Args:
-            builds: List of Build objects to get POB codes for
-            output_dir: Optional directory to save POB code files
+            builds: List of Build objects to enrich
 
         Returns:
-            Dict mapping character_name -> pob_code
+            List of enriched Build objects
         """
-        pob_codes = {}
+        print(f"\nEnriching {len(builds)} builds with detailed information...")
 
-        print(f"\nExporting POB codes for {len(builds)} builds...")
-
+        enriched = []
         for i, build in enumerate(builds, 1):
             try:
                 print(f"[{i}/{len(builds)}] {build.character_name}...", end=" ")
-                pob_code = self.export_pob_code(build)
-                pob_codes[build.character_name] = pob_code
-                print(f"✓ ({len(pob_code)} chars)")
+                enriched_build = self.enrich_build_details(build)
 
-                # Optional: save to file
-                if output_dir:
-                    self._save_pob_code(build.character_name, pob_code, output_dir)
+                # Show what we found
+                skill_count = sum(len(sg.gems) for sg in enriched_build.skill_groups)
+                main_skills = [sg.main_skill for sg in enriched_build.skill_groups if sg.main_skill]
+                print(f"✓ ({skill_count} gems, {len(main_skills)} skills)")
+
+                enriched.append(enriched_build)
 
                 # Small delay to avoid hammering the server
                 time.sleep(1)
 
             except Exception as e:
                 print(f"✗ Error: {e}")
+                enriched.append(build)  # Add original if enrichment fails
                 continue
 
-        print(f"\nSuccessfully exported {len(pob_codes)}/{len(builds)} POB codes")
-        return pob_codes
-
-    def _save_pob_code(self, character_name: str, pob_code: str, output_dir: str):
-        """Save POB code to file."""
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-
-        # Sanitize filename
-        safe_name = "".join(c if c.isalnum() else "_" for c in character_name)
-        filepath = output_path / f"{safe_name}.txt"
-
-        with open(filepath, "w") as f:
-            f.write(pob_code)
+        print(f"\nSuccessfully enriched {len([b for b in enriched if b.skill_groups])}/{len(builds)} builds")
+        return enriched
 
     def save_snapshot(self, snapshot: BuildSnapshot, output_path: str):
         """

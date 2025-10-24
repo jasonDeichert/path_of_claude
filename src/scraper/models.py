@@ -1,8 +1,50 @@
 """Data models for POE build scraping."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
+
+
+@dataclass
+class SkillGem:
+    """Represents a skill gem in a link group."""
+    name: str
+    is_support: bool = False
+
+
+@dataclass
+class SkillGroup:
+    """Represents a group of linked gems."""
+    gems: List[SkillGem] = field(default_factory=list)
+    slot: Optional[str] = None  # e.g., "Body Armour", "Weapon"
+
+    @property
+    def main_skill(self) -> Optional[str]:
+        """Get the main active skill gem."""
+        for gem in self.gems:
+            if not gem.is_support:
+                return gem.name
+        return None
+
+    @property
+    def link_count(self) -> int:
+        """Number of linked gems."""
+        return len(self.gems)
+
+    def __repr__(self) -> str:
+        main = self.main_skill or "Unknown"
+        return f"SkillGroup({main} + {self.link_count-1} supports)"
+
+
+@dataclass
+class ItemSlot:
+    """Represents an equipped item."""
+    slot: str  # "Weapon", "Body Armour", "Helmet", etc.
+    name: Optional[str] = None
+    rarity: Optional[str] = None  # "Unique", "Rare", etc.
+
+    def __repr__(self) -> str:
+        return f"{self.slot}: {self.name or 'Empty'}"
 
 
 @dataclass
@@ -28,6 +70,10 @@ class Build:
 
     # Build characteristics
     keystones: List[str] = field(default_factory=list)  # ["Resolute Technique", ...]
+
+    # Detailed build info (populated from detail page)
+    skill_groups: List[SkillGroup] = field(default_factory=list)
+    items: List[ItemSlot] = field(default_factory=list)
 
     # Metadata
     profile_url: str = ""  # Link to poe.ninja build details page
